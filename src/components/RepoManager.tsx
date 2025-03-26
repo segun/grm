@@ -18,6 +18,19 @@ export default function RepoManager() {
   const [currentBranch, setCurrentBranch] = useState<string>("main");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const [deploymentStatus, setDeploymentStatus] = useState<{
+    isDeploying: boolean;
+    message: string;
+    success?: boolean;
+    output?: string;
+  }>({
+    isDeploying: false,
+    message: "",
+  });
+  
+  const [appName, setAppName] = useState<string>("");
+  const [ancestry, setAncestry] = useState<any[] | null>(null);
+  const [forks, setForks] = useState<any[]>([]);
 
   useEffect(() => {
     fetchUserInfo();
@@ -242,6 +255,96 @@ export default function RepoManager() {
         currentRepo.name,
         currentBranch
       );
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deployToFly() {
+    if (!currentRepo) return;
+
+    try {
+      setDeploymentStatus({
+        isDeploying: true,
+        message: "Deploying to Fly.io...",
+      });
+
+      // Use the entered app name or default to repo name if empty
+      const deployAppName = appName.trim() || currentRepo.name;
+
+      const response = await fetch("/api/github", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "deploy",
+          owner: currentRepo.owner.login,
+          repo: currentRepo.name,
+          appName: deployAppName
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to deploy to Fly.io");
+      const data = await response.json();
+      
+      setDeploymentStatus({
+        isDeploying: false,
+        message: data.message,
+        success: data.success,
+        output: data.output,
+      });
+    } catch (err: any) {
+      setDeploymentStatus({
+        isDeploying: false,
+        message: `Error: ${err.message}`,
+        success: false,
+      });
+      setError(err.message);
+    }
+  }
+
+  async function fetchForkInfo() {
+    if (!currentRepo) return;
+    try {
+      setLoading(true);
+      setError("");
+      const response = await fetch("/api/github", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "getForkInfo",
+          owner: currentRepo.owner.login,
+          repo: currentRepo.name,
+        }),
+      });
+      if (!response.ok) throw new Error("Failed to fetch fork info");
+      const data = await response.json();
+      // Save the ancestry chain
+      setAncestry(data.ancestry ?? []);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchForks() {
+    if (!currentRepo) return;
+    try {
+      setLoading(true);
+      const response = await fetch("/api/github", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "listForks",
+          owner: currentRepo.owner.login,
+          repo: currentRepo.name
+        }),
+      });
+      if (!response.ok) throw new Error("Failed to list forks");
+      const data = await response.json();
+      setForks(data);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -513,6 +616,110 @@ export default function RepoManager() {
                 </form>
               </div>
             </div>
+
+            {/* Update the Deploy to Fly.io section */}
+            <div className="bg-gray-50 p-5 rounded-lg border mb-6">
+              <h3 className="text-lg font-medium mb-3 text-gray-800 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clipRule="evenodd" />
+                </svg>
+                Deploy to Fly.io
+              </h3>
+              <div className="flex flex-col">
+                <div className="mb-3">
+                  <label className="block text-base font-medium text-gray-700 mb-2">
+                    App Name: (defaults to repository name if empty)
+                  </label>
+                  <input
+                    type="text"
+                    value={appName}
+                    onChange={(e) => setAppName(e.target.value)}
+                    className="text-gray-500 block w-full px-4 py-3 text-base border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder={currentRepo.name}
+                  />
+                </div>
+                <button
+                  onClick={deployToFly}
+                  disabled={deploymentStatus.isDeploying}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white py-3 px-4 text-base rounded-md shadow-sm transition disabled:opacity-50 mb-3"
+                >
+                  {deploymentStatus.isDeploying ? "Deploying..." : "Deploy to Fly.io"}
+                </button>
+                
+                {deploymentStatus.message && (
+                  <div className={`mt-3 p-4 rounded-md ${
+                    deploymentStatus.success === undefined
+                      ? "bg-gray-100"
+                      : deploymentStatus.success
+                      ? "bg-green-100"
+                      : "bg-red-100"
+                  }`}>
+                    <p className={`font-medium ${
+                      deploymentStatus.success === undefined
+                        ? "text-gray-800"
+                        : deploymentStatus.success
+                        ? "text-green-800"
+                        : "text-red-800"
+                    }`}>
+                      {deploymentStatus.message}
+                    </p>
+                    
+                    {deploymentStatus.output && (
+                      <div className="mt-2">
+                        <p className="font-medium text-gray-700 mb-1">Deployment Output:</p>
+                        <pre className="bg-black text-green-400 p-3 rounded-md text-sm overflow-auto max-h-40">
+                          {deploymentStatus.output}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={fetchForkInfo}
+              className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md"
+            >
+              Get Ancestry
+            </button>
+
+            {ancestry && ancestry.length > 0 && (
+              <div className="mt-4 p-4 bg-gray-50 border rounded text-zinc-700">
+                <h3 className="text-lg font-medium mb-2">Ancestry:</h3>
+                <ul className="list-disc list-inside pl-5">
+                  {ancestry.map((parent, idx) => (
+                    <li key={idx}>
+                      <a
+                        href={parent.htmlUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        {parent.fullName}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <button onClick={fetchForks} className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md">
+              Show Forks
+            </button>
+
+            {forks.length > 0 && (
+              <div className="mt-4 p-4 bg-gray-50 border rounded">
+                <h3 className="text-lg font-medium mb-2">Forks:</h3>
+                <ul className="list-disc list-inside pl-5">
+                  {forks.map((fork: any) => (
+                    <li key={fork.id}>
+                      {fork.full_name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="h-[600px]">
               <h3 className="text-lg font-medium mb-3 flex items-center text-gray-800">
