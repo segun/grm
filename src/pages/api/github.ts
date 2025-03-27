@@ -60,78 +60,6 @@ export default async function handler(
         console.log("Repo Data", JSON.stringify(result.data, null, 2));
         break;
 
-      case "getForkInfo":
-        // Get repository information including fork count and fork status
-        const repoInfo = await octokit.repos.get({
-          owner: params.owner,
-          repo: params.repo,
-        });
-        
-        // Helper function to recursively get all parent repositories
-        async function getAncestry(owner: string, repo: string): Promise<any[]> {
-          try {
-            const repoData = await octokit.repos.get({ owner, repo });
-            
-            if (!repoData.data.fork) {
-              return [
-                {
-                  fullName: repoData.data.full_name,
-                  htmlUrl: repoData.data.html_url,
-                  owner: repoData.data.owner.login,
-                  name: repoData.data.name,
-                  isFork: false
-                }
-              ];
-            }
-        
-            // If it's a fork, handle the parent
-            if (repoData.data.parent) {
-              const parentIsFork = repoData.data.parent.fork;
-              const parentInfo = {
-                fullName: repoData.data.parent.full_name,
-                htmlUrl: repoData.data.parent.html_url,
-                owner: repoData.data.parent.owner.login,
-                name: repoData.data.parent.name,
-                isFork: parentIsFork
-              };
-        
-              // If the parent is not a fork, just return its info
-              if (!parentIsFork) {
-                return [parentInfo];
-              } else {
-                // Recursively get the parent's ancestry
-                const ancestors = await getAncestry(
-                  repoData.data.parent.owner.login,
-                  repoData.data.parent.name
-                );
-                return [parentInfo, ...ancestors];
-              }
-            }
-        
-            return [];
-          } catch (error) {
-            console.error("Error fetching ancestry:", error);
-            return [];
-          }
-        }
-        
-        // Get all ancestors (parents) of this repository
-        const ancestors = repoInfo.data.fork ? await getAncestry(params.owner, params.repo) : [];
-        
-        const forkInfo = {
-          forkCount: repoInfo.data.forks_count,
-          isFork: repoInfo.data.fork,
-          // If it's a fork, the first ancestor is the immediate parent
-          parent: ancestors.length > 0 ? ancestors[0] : null,
-          // The last ancestor (if any) is the ultimate source
-          source: ancestors.length > 0 ? ancestors[ancestors.length - 1] : null,
-          // Include the full chain of ancestors
-          ancestry: ancestors
-        };
-        
-        result = { data: forkInfo };
-        break;
-
       case "createFile":
         const content = Buffer.from(params.content).toString("base64");
         result = await octokit.repos.createOrUpdateFileContents({
@@ -316,13 +244,6 @@ echo "DEPLOYMENT_COMPLETED" >> ${logFilePath}
           };
         }
         break;
-
-      case "listForks":
-        result = await octokit.repos.listForks({
-          owner: params.owner,
-          repo: params.repo,
-        });
-        return res.status(200).json(result.data);
 
       default:
         return res.status(400).json({ error: "Invalid action" });

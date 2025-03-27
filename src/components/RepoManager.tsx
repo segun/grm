@@ -29,8 +29,6 @@ export default function RepoManager() {
   });
   
   const [appName, setAppName] = useState<string>("");
-  const [ancestry, setAncestry] = useState<any[] | null>(null);
-  const [forks, setForks] = useState<any[]>([]);
 
   useEffect(() => {
     fetchUserInfo();
@@ -301,54 +299,6 @@ export default function RepoManager() {
         success: false,
       });
       setError(err.message);
-    }
-  }
-
-  async function fetchForkInfo() {
-    if (!currentRepo) return;
-    try {
-      setLoading(true);
-      setError("");
-      const response = await fetch("/api/github", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "getForkInfo",
-          owner: currentRepo.owner.login,
-          repo: currentRepo.name,
-        }),
-      });
-      if (!response.ok) throw new Error("Failed to fetch fork info");
-      const data = await response.json();
-      // Save the ancestry chain
-      setAncestry(data.ancestry ?? []);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function fetchForks() {
-    if (!currentRepo) return;
-    try {
-      setLoading(true);
-      const response = await fetch("/api/github", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "listForks",
-          owner: currentRepo.owner.login,
-          repo: currentRepo.name
-        }),
-      });
-      if (!response.ok) throw new Error("Failed to list forks");
-      const data = await response.json();
-      setForks(data);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -676,50 +626,6 @@ export default function RepoManager() {
                 )}
               </div>
             </div>
-
-            <button
-              onClick={fetchForkInfo}
-              className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md"
-            >
-              Get Ancestry
-            </button>
-
-            {ancestry && ancestry.length > 0 && (
-              <div className="mt-4 p-4 bg-gray-50 border rounded text-zinc-700">
-                <h3 className="text-lg font-medium mb-2">Ancestry:</h3>
-                <ul className="list-disc list-inside pl-5">
-                  {ancestry.map((parent, idx) => (
-                    <li key={idx}>
-                      <a
-                        href={parent.htmlUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                      >
-                        {parent.fullName}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <button onClick={fetchForks} className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md">
-              Show Forks
-            </button>
-
-            {forks.length > 0 && (
-              <div className="mt-4 p-4 bg-gray-50 border rounded">
-                <h3 className="text-lg font-medium mb-2">Forks:</h3>
-                <ul className="list-disc list-inside pl-5">
-                  {forks.map((fork: any) => (
-                    <li key={fork.id}>
-                      {fork.full_name}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             <div className="h-[600px]">
               <h3 className="text-lg font-medium mb-3 flex items-center text-gray-800">
