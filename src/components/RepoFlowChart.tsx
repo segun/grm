@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -11,6 +11,8 @@ import ReactFlow, {
   Node,
   Edge,
   Panel,
+  useReactFlow,
+  ReactFlowProvider,
 } from "reactflow";
 import "reactflow/dist/style.css";
 
@@ -196,7 +198,31 @@ const ChildlessForkGroup = ({ data }: { data: any }) => {
   );
 };
 
-const RepoFlowChart = ({ data }: { data: any[] }) => {
+// Custom node component to render nodes with links
+const NodeWithLink = ({ data }: { data: any }) => (
+  <div>
+    <a
+      href={data.url}
+      target="_blank"
+      rel="noreferrer"
+      className="hover:underline"
+    >
+      {data.label}
+    </a>
+  </div>
+);
+
+// Define nodeTypes outside of the component to avoid recreation on each render
+const nodeTypes = {
+  default: NodeWithLink,
+  childlessForks: ChildlessForkGroup,
+};
+
+// Wrapper component that provides the ReactFlow context
+const FlowWithProvider = ({ data }: { data: any[] }) => {
+  // Create a reference to the ReactFlow instance
+  const reactFlowInstance = useReactFlow();
+  
   // Process data into nodes and edges for React Flow
   const { initialNodes, initialEdges } = useMemo(() => {
     const nodes: Node[] = [];
@@ -214,6 +240,8 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
       parentId: string | null = null,
       isCurrentRepo = false
     ) => {
+      if (!node || !node.fullName) return; // Skip invalid nodes
+      
       // Create a unique ID for each node
       const id = node.fullName.replace(/\//g, "_");
       
@@ -248,12 +276,18 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
         },
       });
       
+      if (!parentId || !id) {
+        console.error("Invalid edge source/target:", { parentId, id });
+        return;
+      }
       // Create edge from parent to this node
       if (parentId) {
+        const edgeId = `${parentId}->${id}`;
         edges.push({
-          id: `${parentId}->${id}`,
+          id: edgeId,
           source: parentId,
           target: id,
+          type: 'smoothstep',
           animated: false,
           style: { 
             stroke: "#64748b", 
@@ -265,19 +299,19 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
             width: 20,
             height: 20,
           },
-          type: 'step',
+          zIndex: 1000, // Ensure edges are rendered above nodes
         });
       }
       
       // Process subforks
       if (Array.isArray(node.subForks) && node.subForks.length > 0) {
         // Group childless forks
-        const forksWithChildren = node.subForks.filter((f: any) => f.hasSubforks);
-        const forksWithoutChildren = node.subForks.filter((f: any) => !f.hasSubforks);
+        const forksWithChildren = node.subForks.filter((f: any) => f && f.hasSubforks);
+        const forksWithoutChildren = node.subForks.filter((f: any) => f && !f.hasSubforks);
         
         // Process forks with children
         forksWithChildren.forEach((fork: any) => {
-          processNode(fork, id);
+          if (fork) processNode(fork, id);
         });
         
         // Add grouped node for forks without children if there are any
@@ -298,10 +332,12 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
             },
           });
           
+          const edgeId = `${id}->${groupId}`;
           edges.push({
-            id: `${id}->${groupId}`,
+            id: edgeId,
             source: id,
             target: groupId,
+            type: 'smoothstep',
             style: { stroke: "#64748b", strokeWidth: 2.5 },
             markerEnd: {
               type: MarkerType.ArrowClosed,
@@ -309,7 +345,7 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
               width: 20,
               height: 20,
             },
-            type: 'step',
+            zIndex: 1000,
           });
         }
       } else if (typeof node.subForks === 'object' && node.subForks !== null) {
@@ -322,6 +358,8 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
     if (ancestryNodes.length > 0) {
       // Create nodes for all ancestors
       ancestryNodes.forEach((item, index) => {
+        if (!item || !item.fullName) return; // Skip invalid items
+        
         const id = item.fullName.replace(/\//g, "_");
         
         // Skip if we've already processed this node
@@ -353,10 +391,12 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
         // Create edge from previous ancestor
         if (index > 0) {
           const prevId = ancestryNodes[index - 1].fullName.replace(/\//g, "_");
+          const edgeId = `${prevId}->${id}`;
           edges.push({
-            id: `${prevId}->${id}`,
+            id: edgeId,
             source: prevId,
             target: id,
+            type: 'smoothstep',
             animated: true,
             style: { 
               stroke: "#3b82f6", 
@@ -368,7 +408,7 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
               width: 20,
               height: 20,
             },
-            type: 'step',
+            zIndex: 1000, // Ensure edges are rendered above nodes
           });
         }
         
@@ -379,7 +419,7 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
             processNode(item.subForks, id, true);
           } else if (Array.isArray(item.subForks)) {
             item.subForks.forEach((fork: any) => {
-              processNode(fork, id);
+              if (fork) processNode(fork, id);
             });
           }
         }
@@ -387,7 +427,7 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
     } else if (data.length > 0) {
       // If no ancestry, process the data directly - it should be a single node
       const rootNode = data[0];
-      processNode(rootNode, null, true);
+      if (rootNode) processNode(rootNode, null, true);
     }
     
     return { initialNodes: nodes, initialEdges: edges };
@@ -398,32 +438,28 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
     return createTreeLayout(initialNodes, initialEdges);
   }, [initialNodes, initialEdges]);
   
+  console.log("Nodes:", initialNodes);
+  console.log("Edges:", initialEdges);
+  
   // Use React Flow hooks for nodes and edges
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   
-  // Custom node component to render nodes with links
-  const NodeWithLink = ({ data }: { data: any }) => (
-    <div>
-      <a
-        href={data.url}
-        target="_blank"
-        rel="noreferrer"
-        className="hover:underline"
-      >
-        {data.label}
-      </a>
-    </div>
-  );
-  
-  // Node types mapping
-  const nodeTypes = useMemo(
-    () => ({
-      default: NodeWithLink,
-      childlessForks: ChildlessForkGroup,
-    }),
-    []
-  );
+  useEffect(() => {
+    setEdges(initialEdges);
+  }, [initialEdges, setEdges]);
+
+  // Function to reset view and refresh edges
+  const resetView = useCallback(() => {
+    // Force edges to be recreated
+    setEdges([...initialEdges]);
+    
+    setTimeout(() => {
+      if (reactFlowInstance) {
+        reactFlowInstance.fitView({ padding: 0.2 });
+      }
+    }, 50);
+  }, [initialEdges, reactFlowInstance, setEdges]);
 
   return (
     <div className="h-[70vh] border border-gray-200 bg-white relative">
@@ -432,26 +468,29 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
+        nodeTypes={nodeTypes} // Use the nodeTypes defined outside the component
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         attributionPosition="bottom-right"
         defaultEdgeOptions={{
-          type: 'step',  // Use step edges for better visibility
+          type: 'smoothstep',  // Use smoothstep for better visibility
           style: { 
             stroke: '#64748b',
-            strokeWidth: 2.5,  // Thicker default edges
+            strokeWidth: 2.5,
+            zIndex: 1000, // Ensure edges are always on top
           },
+          zIndex: 1000, // Ensure edges are always on top
         }}
         connectionLineStyle={{
           stroke: '#64748b',
-          strokeWidth: 3,  // Thicker connection lines
+          strokeWidth: 3,
         }}
-        // Ensure edges are rendered with higher priority
-        elementsSelectable={true}
+        elementsSelectable={false}
         edgesFocusable={true}
         nodesDraggable={true}
         snapToGrid={true}
         snapGrid={[15, 15]}
+        proOptions={{ hideAttribution: true }} // Remove attribution for cleaner view
       >
         <Controls />
         <MiniMap 
@@ -460,6 +499,16 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
           pannable
         />
         <Background gap={12} size={1} color="#f1f5f9" />
+        
+        {/* Add panel for better controls */}
+        <Panel position="top-right" className="mr-16 mt-28">
+          <button 
+            onClick={resetView}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md text-sm font-medium transition-colors"
+          >
+            Reset View
+          </button>
+        </Panel>
       </ReactFlow>
       
       {/* Move legends outside of ReactFlow for better visibility */}
@@ -504,19 +553,25 @@ const RepoFlowChart = ({ data }: { data: any[] }) => {
         </div>
       </div>
       
-      {/* Reset view button */}
+      {/* Replace the reset view button with the panel button above */}
       <div className="absolute bottom-4 right-16 z-50">
         <button 
-          onClick={() => {
-            // Force a re-render to refresh edges
-            setEdges([...edges]);
-          }}
+          onClick={resetView}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md text-sm font-medium transition-colors"
         >
           Reset View
         </button>
       </div>
     </div>
+  );
+};
+
+// Main component that wraps the flow with the provider
+const RepoFlowChart = ({ data }: { data: any[] }) => {
+  return (
+    <ReactFlowProvider>
+      <FlowWithProvider data={data} />
+    </ReactFlowProvider>
   );
 };
 
