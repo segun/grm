@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import GitHubForkTree from "@/components/vertical-tree/GitHubForkTree";
 import { useState, lazy, Suspense } from "react";
 
 // Lazy load the ReactFlow component to improve initial load time
@@ -106,6 +107,7 @@ export default function ForkManager() {
           </div>
           <Suspense fallback={<div className="h-[70vh] bg-gray-50 flex items-center justify-center">Loading visualization...</div>}>
             <RepoFlowChart data={results} />
+            <GitHubForkTree treeData={results} />
           </Suspense>
         </div>
       )}
