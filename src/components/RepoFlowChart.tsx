@@ -1,20 +1,16 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import ReactFlow, {
-  MiniMap,
-  Controls,
-  Background,
-  useNodesState,
-  useEdgesState,
-  MarkerType,
-  Node,
-  Edge,
-  Panel,
-  useReactFlow,
-  ReactFlowProvider,
+    MiniMap,
+    Controls,
+    Background, MarkerType,
+    Node,
+    Edge, useReactFlow,
+    ReactFlowProvider
 } from "reactflow";
 import "reactflow/dist/style.css";
+import RespondEdge from './RespondEdge';
 
 // Custom node styles
 const nodeStyles = {
@@ -218,10 +214,17 @@ const nodeTypes = {
   childlessForks: ChildlessForkGroup,
 };
 
+export const edgeTypes = {
+    respond: RespondEdge,
+}
+
+
 // Wrapper component that provides the ReactFlow context
 const FlowWithProvider = ({ data }: { data: any[] }) => {
   // Create a reference to the ReactFlow instance
   const reactFlowInstance = useReactFlow();
+  const [defaultNodes, setDefaultNodes] = useState<Node[]>([])
+  const [defaultEdges, setDefaultEdges] = useState<Edge[]>([])
   
   // Process data into nodes and edges for React Flow
   const { initialNodes, initialEdges } = useMemo(() => {
@@ -300,6 +303,7 @@ const FlowWithProvider = ({ data }: { data: any[] }) => {
             height: 20,
           },
           zIndex: 1000, // Ensure edges are rendered above nodes
+          
         });
       }
       
@@ -442,33 +446,24 @@ const FlowWithProvider = ({ data }: { data: any[] }) => {
   console.log("Edges:", initialEdges);
   
   // Use React Flow hooks for nodes and edges
-  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  
-  useEffect(() => {
-    setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
+  const { setNodes, setEdges } = useReactFlow();
 
-  // Function to reset view and refresh edges
-  const resetView = useCallback(() => {
-    // Force edges to be recreated
-    setEdges([...initialEdges]);
-    
+  useEffect(() => {
+    console.log("Setting nodes and edges:", layoutedNodes, initialEdges);    
+    setNodes(layoutedNodes);
     setTimeout(() => {
-      if (reactFlowInstance) {
-        reactFlowInstance.fitView({ padding: 0.2 });
-      }
-    }, 50);
-  }, [initialEdges, reactFlowInstance, setEdges]);
+      setEdges(initialEdges);
+    }, 1000);
+    setEdges([]);
+  }, [initialEdges, initialNodes, setNodes, setEdges, layoutedNodes]);
 
   return (
     <div className="h-[70vh] border border-gray-200 bg-white relative">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+      defaultNodes={defaultNodes}
+        defaultEdges={defaultEdges}
         nodeTypes={nodeTypes} // Use the nodeTypes defined outside the component
+        edgeTypes={edgeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         attributionPosition="bottom-right"
@@ -485,7 +480,7 @@ const FlowWithProvider = ({ data }: { data: any[] }) => {
           stroke: '#64748b',
           strokeWidth: 3,
         }}
-        elementsSelectable={false}
+        elementsSelectable={true}
         edgesFocusable={true}
         nodesDraggable={true}
         snapToGrid={true}
@@ -499,16 +494,6 @@ const FlowWithProvider = ({ data }: { data: any[] }) => {
           pannable
         />
         <Background gap={12} size={1} color="#f1f5f9" />
-        
-        {/* Add panel for better controls */}
-        <Panel position="top-right" className="mr-16 mt-28">
-          <button 
-            onClick={resetView}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md text-sm font-medium transition-colors"
-          >
-            Reset View
-          </button>
-        </Panel>
       </ReactFlow>
       
       {/* Move legends outside of ReactFlow for better visibility */}
@@ -551,16 +536,6 @@ const FlowWithProvider = ({ data }: { data: any[] }) => {
             <span className="text-gray-700">Fork Relationship</span>
           </div>
         </div>
-      </div>
-      
-      {/* Replace the reset view button with the panel button above */}
-      <div className="absolute bottom-4 right-16 z-50">
-        <button 
-          onClick={resetView}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md text-sm font-medium transition-colors"
-        >
-          Reset View
-        </button>
       </div>
     </div>
   );
