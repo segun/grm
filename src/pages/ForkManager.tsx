@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import GitHubForkTree from "@/components/vertical-tree/GitHubForkTree";
+// import GitHubForkTree from "@/components/vertical-tree/GitHubForkTree";
 import { useState, lazy, Suspense } from "react";
 
 // Lazy load the ReactFlow component to improve initial load time
-const RepoFlowChart = lazy(() => import('../components/RepoFlowChart'));
+const GitHubForkTree = lazy(() => import('../components/vertical-tree/GitHubForkTree'));
 
 export default function ForkManager() {
   const [owner, setOwner] = useState("");
@@ -106,8 +106,11 @@ export default function ForkManager() {
             </button>
           </div>
           <Suspense fallback={<div className="h-[70vh] bg-gray-50 flex items-center justify-center">Loading visualization...</div>}>
-            <RepoFlowChart data={results} />
-            <GitHubForkTree treeData={results} />
+            {/* <RepoFlowChart data={results} /> */}
+            <GitHubForkTree 
+              treeData={results} 
+              currentRepo={`${owner}/${repo}`} 
+            />
           </Suspense>
         </div>
       )}
