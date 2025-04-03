@@ -40,37 +40,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Helper function to recursively get all ancestors
   async function getAncestry(o: string, r: string): Promise<any[]> {
     try {
+      console.log(`Getting ancestry for ${o}/${r}`);
       const repoData = await octokit.repos.get({ owner: o, repo: r });
+      console.log(`Repository ${o}/${r} fork status: ${repoData.data.fork}`);
       
-      // If it's a fork and has a parent, navigate up the chain
-      if (repoData.data.fork && repoData.data.parent) {
-        const parent = repoData.data.parent;
-        const parentOwner = parent.owner.login;
-        const parentName = parent.name;
-        
-        // Get the ancestry chain starting from the parent
-        const parentChain = await getAncestry(parentOwner, parentName);
-        return parentChain;
+      // Enhanced debugging for parent detection
+      if (repoData.data.fork) {
+        // For forked repos, directly fetch the parent information
+        try {
+          const { data: repoDetails } = await octokit.request('GET /repos/{owner}/{repo}', {
+            owner: o,
+            repo: r
+          });
+          
+          if (repoDetails.parent) {
+            console.log(`Found parent for ${o}/${r}: ${repoDetails.parent.full_name}`);
+            const parentOwner = repoDetails.parent.owner.login;
+            const parentName = repoDetails.parent.name;
+            
+            // Create the immediate parent node
+            const parentNode = {
+              fullName: repoDetails.parent.full_name,
+              htmlUrl: repoDetails.parent.html_url,
+              owner: parentOwner,
+              name: parentName,
+              isFork: repoDetails.parent.fork
+            };
+            
+            // Recursively get ancestors of the parent
+            const parentAncestors = await getAncestry(parentOwner, parentName);
+            
+            // Return the parent and its ancestors
+            return [...parentAncestors, parentNode];
+          } else {
+            console.log(`No parent found for ${o}/${r} despite being marked as a fork`);
+          }
+        } catch (error) {
+          console.error(`Error fetching parent info for ${o}/${r}:`, error);
+        }
       }
       
-      // If it's not a fork or has no parent data, this is the root repo
-      // We return it only if it's not the same as the starting repo
-      if (o.toLowerCase() !== repoData.data.owner.login.toLowerCase() || 
-          r.toLowerCase() !== repoData.data.name.toLowerCase()) {
-        return [{
-          fullName: repoData.data.full_name,
-          htmlUrl: repoData.data.html_url,
-          owner: repoData.data.owner.login,
-          name: repoData.data.name,
-          isFork: false
-        }];
-      }
-      
-      // For the starting repo that's not a fork, return empty array
-      // This prevents it from showing up twice in the lineage
-      return [];
+      return []; // Return empty array if no ancestors found or if this is the root repo
     } catch (error) {
-      console.error("Error in getAncestry:", error);
+      console.error(`Error in getAncestry for ${o}/${r}:`, error);
       return [];
     }
   }
@@ -264,50 +276,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log(`Building complete lineage for ${o}/${r}, page ${currentPage}`);
     
     try {
-      // First, get the ancestry chain (excludes the current repo)
+      // First, get the ancestry chain
+      console.log(`Fetching ancestry for ${o}/${r}`);
       const ancestry = await getAncestry(o, r);
-      console.log(`Found ancestry chain with ${ancestry.length} repositories ${JSON.stringify(ancestry, null, 2)}`);
+      console.log(`Found ancestry chain with ${ancestry.length} repositories:`);
+      ancestry.forEach(anc => console.log(`- ${anc.fullName}`));
       
       // Build the fork tree from the current repository
       const currentRepoWithForks = await buildForkTree(o, r, 0, 2, processedNodes, currentPage);
       console.log(`Built fork tree from ${o}/${r} with ${currentRepoWithForks.subForks.length} direct forks`);
       
       // If no ancestors found, just return the current repo with its forks
-      if (ancestry.length === 0) {
+      if (!ancestry.length) {
+        console.log(`No ancestors found for ${o}/${r}, returning only the current repo`);
         return [currentRepoWithForks];
       }
       
-      // Reverse the ancestry so oldest ancestors come first
+      // Create a properly nested tree structure
+      // We'll work backwards from the current repo up to the root
+      
+      // Start with the current repo
+      let childNode = currentRepoWithForks;
+      
+      // Reverse the ancestry array to go from most recent ancestor to the root
       const reversedAncestry = [...ancestry].reverse();
-      console.log(`Reversed ancestry chain`);
       
-      // Check if each ancestor is owned by the user
-      const ancestorsWithOwnership = await Promise.all(
-        reversedAncestry.map(async (item) => ({
-          ...item,
-          isOwnedByUser: await isOwnedByUser(item.owner)
-        }))
-      );
+      // Build the nested structure from the bottom up
+      for (let i = 0; i < reversedAncestry.length; i++) {
+        const ancestor = reversedAncestry[i];
+        const isOwned = await isOwnedByUser(ancestor.owner);
+        
+        // Create the parent node
+        const parentNode: ForkTreeNode = {
+          fullName: ancestor.fullName,
+          htmlUrl: ancestor.htmlUrl,
+          owner: ancestor.owner,
+          name: ancestor.name,
+          isFork: !!ancestor.isFork,
+          subForks: [childNode], // Add the child as a subfork
+          hasSubforks: true,     // It has at least one subfork (the child)
+          isAncestor: true,
+          isOwnedByUser: isOwned
+        };
+        
+        // This parent becomes the child for the next iteration
+        childNode = parentNode;
+      }
       
-      // Convert ancestry items to have the same structure as fork items
-      const ancestryNodes: ForkTreeNode[] = ancestorsWithOwnership.map((item, index) => ({
-        ...item,
-        subForks: [],
-        hasSubforks: false,
-        isAncestor: true,
-        hasNextPage: false,
-        isOwnedByUser: item.isOwnedByUser
-      }));
-      
-      // Add the current repo as a subfork of the newest ancestor
-      const newestAncestorIndex = ancestryNodes.length - 1;
-      ancestryNodes[newestAncestorIndex].subForks = [currentRepoWithForks];
-      ancestryNodes[newestAncestorIndex].hasSubforks = true;
-      
-      return ancestryNodes;
+      // By now, childNode is actually the root of our tree
+      // We return it as a single-item array
+      console.log(`Returning hierarchical lineage with root: ${childNode.fullName}`);
+      return [childNode];
     } catch (error) {
-      console.error("Error building complete lineage:", error);
-      throw error;
+      console.error(`Error building complete lineage for ${o}/${r}:`, error);
+      // Return just the current repo if there's an error with ancestry
+      const currentRepo = await buildForkTree(o, r, 0, 2, processedNodes, currentPage);
+      return [currentRepo];
     }
   }
 
