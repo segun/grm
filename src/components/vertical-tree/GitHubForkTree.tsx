@@ -10,6 +10,7 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'reactflow';
+import ReactMarkdown from 'react-markdown';
 import 'reactflow/dist/style.css';
 
 interface ForkData {
@@ -225,8 +226,10 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
               ✕
             </button>
           </div>
-          <div style={{ whiteSpace: 'pre-wrap' }}>
-            {readmeContent}
+          <div className="markdown-content" style={{ whiteSpace: 'normal' }}>
+            <ReactMarkdown>
+              {readmeContent}
+            </ReactMarkdown>
           </div>
         </div>
       )}
