@@ -54,6 +54,9 @@ export default function ForkManager() {
   const [searchResults, setSearchResults] = useState<RepoSearchResult[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loadedNodes, setLoadedNodes] = useState<any[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
   // Use the debounce hook for search query
@@ -90,18 +93,65 @@ export default function ForkManager() {
   async function handleSubmit() {
     setResults(null);
     setLoading(true);
+    setCurrentPage(1);
+    setLoadedNodes([]);
+    
     try {
       const response = await fetch("/api/forks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, owner, repo }),
+        body: JSON.stringify({ 
+          action, 
+          owner, 
+          repo, 
+          page: 1, 
+          loadedNodes: [] 
+        }),
       });
       const data = await response.json();
       setResults(data);
+      
+      // Store loaded nodes for potential "load more" requests
+      if (action === "getCompleteLineage" && data.data) {
+        setLoadedNodes(data.data);
+      }
     } catch (error: any) {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleLoadMore(targetOwner: string, targetRepo: string) {
+    if (loadingMore) return;
+    
+    setLoadingMore(true);
+    const nextPage = currentPage + 1;
+    
+    try {
+      const response = await fetch("/api/forks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "loadMoreForks",
+          owner: targetOwner,
+          repo: targetRepo,
+          page: nextPage,
+          loadedNodes: loadedNodes
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.data) {
+        setResults(data);
+        setLoadedNodes(data.data);
+        setCurrentPage(nextPage);
+      }
+    } catch (error) {
+      console.error("Error loading more forks:", error);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -148,6 +198,28 @@ export default function ForkManager() {
     setRepo(repo.name);
     setSearchQuery(repo.full_name);
     setShowDropdown(false);
+  }
+
+  // Function to find nodes with more forks to load
+  function findNodesWithMoreForks(nodes: any[]): { owner: string, repo: string, fullName: string }[] {
+    const result: { owner: string, repo: string, fullName: string }[] = [];
+    
+    const checkNode = (node: any) => {
+      if (node.hasNextPage) {
+        result.push({
+          owner: node.owner,
+          repo: node.name,
+          fullName: node.fullName
+        });
+      }
+      
+      if (node.subForks && node.subForks.length > 0) {
+        node.subForks.forEach((subFork: any) => checkNode(subFork));
+      }
+    };
+    
+    nodes.forEach(node => checkNode(node));
+    return result;
   }
 
   return (
@@ -241,7 +313,7 @@ export default function ForkManager() {
           <h2 className="text-xl font-bold mb-3">Repository Network Visualization</h2>
           <div className="mb-2 flex justify-between items-center">
             <span className="text-sm text-gray-500">
-              Visualization shows ancestry chain and direct forks
+              Visualization shows ancestry chain and direct forks (max 100 per page)
             </span>
             <button
               onClick={() => {
@@ -258,9 +330,51 @@ export default function ForkManager() {
               View raw data
             </button>
           </div>
+          
+          {/* Load More section */}
+          {results.data && (
+            <div className="mb-4">
+              {(() => {
+                const nodesWithMoreForks = findNodesWithMoreForks(results.data);
+                if (nodesWithMoreForks.length > 0) {
+                  return (
+                    <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                      <p className="text-sm text-blue-800 mb-2">
+                        Some repositories have more forks that can be loaded:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {nodesWithMoreForks.map((node, index) => (
+                          <button
+                            key={index}
+                            onClick={() => handleLoadMore(node.owner, node.repo)}
+                            disabled={loadingMore}
+                            className="bg-blue-600 text-white text-xs px-2 py-1 rounded flex items-center hover:bg-blue-700"
+                          >
+                            {loadingMore ? (
+                              <>
+                                <svg className="animate-spin mr-1 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Loading...
+                              </>
+                            ) : (
+                              <>Load more from {node.fullName}</>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
+          
           <Suspense fallback={<div className="h-[70vh] bg-gray-50 flex items-center justify-center">Loading visualization...</div>}>
             <GitHubForkTree 
-              treeData={results} 
+              treeData={results.data || []} 
               currentRepo={`${owner}/${repo}`} 
             />
           </Suspense>
