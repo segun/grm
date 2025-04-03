@@ -58,9 +58,9 @@ const ChildlessForkGroup = ({ data }: { data: NodeData }) => {
       background: '#f3f4f6',
       border: '1px solid #d1d5db',
       color: '#374151',
-      padding: '8px',
+      padding: '12px',
       textAlign: 'center',
-      width: 200,
+      width: 250,
       borderRadius: '5px',
       position: 'relative'
     }}>
@@ -163,6 +163,11 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
     }
   };
 
+  const handleForkClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering parent click handler
+    window.open(data.url + '/fork', '_blank');
+  };
+
   return (
     <div style={{ 
       background: data.isCurrentRepo ? '#F59E0B' : // Current repo color (amber)
@@ -171,9 +176,9 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
                (data.isFork ? '#4299e1' : '#48BB78'), // Other forks or repos
       color: 'white', 
       border: '1px solid #2b6cb0',
-      padding: '8px',
+      padding: '12px',
       borderRadius: '5px',
-      width: 180,
+      width: 250,
       position: 'relative'
     }}>
       <Handle
@@ -182,12 +187,39 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
         id="top"
         style={{ background: '#fff', width: '8px', height: '8px' }}
       />
-      <div 
-        onClick={fetchReadme} 
-        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-      >
-        <span>{data.label}</span>
-        {loading ? <span>...</span> : (showReadme ? <span>▲</span> : <span>▼</span>)}
+      
+      <div style={{ marginBottom: '8px' }}>
+        <div 
+          onClick={fetchReadme} 
+          style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        >
+          <span>{data.label}</span>
+          {loading ? <span>...</span> : (showReadme ? <span>▲</span> : <span>▼</span>)}
+        </div>
+      </div>
+      
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={handleForkClick}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '4px 8px',
+            background: '#ffffff',
+            color: '#333',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+          }}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" style={{ marginRight: '4px' }}>
+            <path fillRule="evenodd" d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.878A2.25 2.25 0 005.75 8.5h1.5v2.128a2.251 2.251 0 101.5 0V8.5h1.5a2.25 2.25 0 002.25-2.25v-.878a2.25 2.25 0 10-1.5 0v.878a.75.75 0 01-.75.75h-4.5A.75.75 0 015 6.25v-.878zm3.75 7.378a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm3-8.75a.75.75 0 100-1.5.75.75 0 000 1.5z"></path>
+          </svg>
+          Fork
+        </button>
       </div>
       
       {showReadme && readmeContent && (
@@ -196,8 +228,8 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
           top: '100%',
           left: 0,
           zIndex: 1000,
-          width: '400px',
-          maxHeight: '400px',
+          width: '500px',
+          maxHeight: '500px',
           overflowY: 'auto',
           background: 'white',
           color: 'black',
@@ -259,8 +291,8 @@ const GitHubForkTree: React.FC<GitHubForkTreeProps> = ({ treeData, currentRepo }
     const flowEdges: Edge[] = [];
     let nodeId = 0;
     let yOffset = 0;
-    const xSpacing = 200;
-    const ySpacing = 100;
+    const xSpacing = 300; // Increased from 200 to provide more horizontal space
+    const ySpacing = 150; // Increased from 100 to provide more vertical space
     
     const nodePositions: Record<string, { id: string, x: number, y: number }> = {};
     
@@ -366,7 +398,7 @@ const GitHubForkTree: React.FC<GitHubForkTreeProps> = ({ treeData, currentRepo }
     };
     
     data.forEach((rootNode, idx) => {
-      processNode(rootNode, 0, idx * xSpacing * 2, null, true); // Root nodes pass true for isRoot
+      processNode(rootNode, 0, idx * xSpacing * 2.5, null, true); // Increased spacing between root nodes
     });
     
     return { flowNodes, flowEdges };
