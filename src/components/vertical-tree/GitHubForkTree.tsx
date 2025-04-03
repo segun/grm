@@ -22,6 +22,7 @@ interface ForkData {
   subForks: ForkData | ForkData[];
   hasSubforks: boolean;
   isAncestor?: boolean;
+  isOwnedByUser?: boolean; // Add this new property
 }
 
 interface NodeData {
@@ -36,6 +37,7 @@ interface NodeData {
   readmeContent?: string; // Added to store README content
   owner?: string; // Added to help with README fetching
   repo?: string; // Added to help with README fetching
+  isOwnedByUser?: boolean; // Add this new property
 }
 
 interface GitHubForkTreeProps {
@@ -168,6 +170,11 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
     window.open(data.url + '/fork', '_blank');
   };
 
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering parent click handler
+    window.open(data.url + '/edit/main', '_blank');
+  };
+
   return (
     <div style={{ 
       background: data.isCurrentRepo ? '#F59E0B' : // Current repo color (amber)
@@ -198,7 +205,30 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
         </div>
       </div>
       
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+        {data.isOwnedByUser && (
+          <button
+            onClick={handleEditClick}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 8px',
+              background: '#ffffff',
+              color: '#333',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+            }}
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" style={{ marginRight: '4px' }}>
+              <path fillRule="evenodd" d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.249.249 0 00.108-.064l6.286-6.286z"></path>
+            </svg>
+            Edit
+          </button>
+        )}
         <button
           onClick={handleForkClick}
           style={{
@@ -318,7 +348,8 @@ const GitHubForkTree: React.FC<GitHubForkTreeProps> = ({ treeData, currentRepo }
           isRoot: isRoot, // Set root flag
           isCurrentRepo: currentRepo ? node.fullName === currentRepo : undefined, // Use ternary to ensure boolean | undefined
           owner: owner,
-          repo: repo
+          repo: repo,
+          isOwnedByUser: node.isOwnedByUser // Pass the ownership info to the node
         },
         position: { x: xPos, y: level * ySpacing },
         type: 'defaultNode', // Use our custom default node

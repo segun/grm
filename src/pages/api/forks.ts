@@ -18,11 +18,24 @@ interface ForkTreeNode {
   hasNextPage?: boolean;
   currentPage?: number;
   isAncestor?: boolean;
+  isOwnedByUser?: boolean; // New property to track user ownership
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
   const { action, owner, repo, query, page = 1, loadedNodes = [] } = req.body;
+
+  // New helper function to check if the authenticated user owns the repository
+  async function isOwnedByUser(o: string): Promise<boolean> {
+    try {
+      // Get authenticated user info
+      const { data: user } = await octokit.users.getAuthenticated();
+      return user.login.toLowerCase() === o.toLowerCase();
+    } catch (error) {
+      console.error("Error checking repository ownership:", error);
+      return false;
+    }
+  }
 
   // Helper function to recursively get all ancestors
   async function getAncestry(o: string, r: string): Promise<any[]> {
@@ -118,6 +131,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Get current repository details
       const repoData = await octokit.repos.get({ owner: o, repo: r });
       
+      // Check if this repo is owned by the authenticated user
+      const ownedByUser = await isOwnedByUser(o);
+      
       // Find if this node was already processed
       const existingNodeIndex = processedNodes.findIndex(
         (node: any) => node.owner === o && node.name === r
@@ -126,6 +142,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // If we've already processed this node and have its forks, use that data
       if (existingNodeIndex !== -1) {
         console.log(`Using existing data for ${o}/${r}`);
+        // Update ownership information if it wasn't already set
+        if (processedNodes[existingNodeIndex].isOwnedByUser === undefined) {
+          processedNodes[existingNodeIndex].isOwnedByUser = ownedByUser;
+        }
         return processedNodes[existingNodeIndex];
       }
       
@@ -154,6 +174,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             subForks = await buildForkTree(forkOwner, forkName, depth + 1, maxDepth, processedNodes);
           }
           
+          // Check if the fork is owned by the user
+          const forkOwnedByUser = await isOwnedByUser(forkOwner);
+          
           processedForks.push({
             fullName: fork.full_name,
             htmlUrl: fork.html_url,
@@ -162,12 +185,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             isFork: fork.fork,
             subForks: subForks.subForks || [],
             hasSubforks: (subForks.subForks || []).length > 0,
-            hasNextPage: subForks.hasNextPage
+            hasNextPage: subForks.hasNextPage,
+            isOwnedByUser: forkOwnedByUser
           });
         }
       } else {
         // At max depth, just add basic fork info without recursing
         for (const fork of forks) {
+          // Check if the fork is owned by the user
+          const forkOwnedByUser = await isOwnedByUser(fork.owner.login);
+          
           processedForks.push({
             fullName: fork.full_name,
             htmlUrl: fork.html_url,
@@ -175,7 +202,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             name: fork.name,
             isFork: fork.fork,
             subForks: [],
-            hasSubforks: false
+            hasSubforks: false,
+            isOwnedByUser: forkOwnedByUser
           });
         }
       }
@@ -197,7 +225,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         subForks: sortedForks,
         hasSubforks: sortedForks.length > 0,
         hasNextPage,
-        currentPage
+        currentPage,
+        isOwnedByUser: ownedByUser
       };
       
       // Add this node to processed nodes
@@ -219,7 +248,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         subForks: [], 
         hasSubforks: false, 
         hasNextPage: false, 
-        currentPage 
+        currentPage,
+        isOwnedByUser: false
       };
     }
   }
@@ -251,13 +281,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const reversedAncestry = [...ancestry].reverse();
       console.log(`Reversed ancestry chain`);
       
+      // Check if each ancestor is owned by the user
+      const ancestorsWithOwnership = await Promise.all(
+        reversedAncestry.map(async (item) => ({
+          ...item,
+          isOwnedByUser: await isOwnedByUser(item.owner)
+        }))
+      );
+      
       // Convert ancestry items to have the same structure as fork items
-      const ancestryNodes: ForkTreeNode[] = reversedAncestry.map((item, index) => ({
+      const ancestryNodes: ForkTreeNode[] = ancestorsWithOwnership.map((item, index) => ({
         ...item,
         subForks: [],
         hasSubforks: false,
         isAncestor: true,
-        hasNextPage: false
+        hasNextPage: false,
+        isOwnedByUser: item.isOwnedByUser
       }));
       
       // Add the current repo as a subfork of the newest ancestor
@@ -296,16 +335,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const { forks, hasNextPage } = await getForksPage(octokit, o, r, page);
             console.log(`Found ${forks.length} more forks for ${o}/${r} on page ${page}`);
             
-            // Process and add the new forks
-            const newForks: ForkTreeNode[] = forks.map((fork: any) => ({
-              fullName: fork.full_name,
-              htmlUrl: fork.html_url,
-              owner: fork.owner.login,
-              name: fork.name,
-              isFork: fork.fork,
-              subForks: [],
-              hasSubforks: false
-            }));
+            // Process forks and check ownership (using Promise.all to handle async)
+            const newForksPromises = forks.map(async (fork: any) => {
+              const isOwned = await isOwnedByUser(fork.owner.login);
+              return {
+                fullName: fork.full_name,
+                htmlUrl: fork.html_url,
+                owner: fork.owner.login,
+                name: fork.name,
+                isFork: fork.fork,
+                subForks: [],
+                hasSubforks: false,
+                isOwnedByUser: isOwned
+              };
+            });
+            
+            // Resolve all promises
+            const newForks: ForkTreeNode[] = await Promise.all(newForksPromises);
             
             // Append new forks to existing ones
             node.subForks = [...node.subForks, ...newForks];
@@ -363,15 +409,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log(`Processing listForks request for ${owner}/${repo}`);
         const { forks, hasNextPage } = await getForksPage(octokit, owner, repo, page);
         console.log(`Processing ${forks.length} forks data`);
-        const strippedForks = forks.map((fork: any) => ({
-          fullName: fork.full_name,
-          htmlUrl: fork.html_url,
-          owner: fork.owner.login,
-          name: fork.name,
-          isFork: fork.fork
-        }));
+        
+        // Check ownership for each fork (using Promise.all correctly with async function)
+        const forksWithOwnershipPromises = forks.map(async (fork: any) => {
+          const isOwned = await isOwnedByUser(fork.owner.login);
+          return {
+            fullName: fork.full_name,
+            htmlUrl: fork.html_url,
+            owner: fork.owner.login,
+            name: fork.name,
+            isFork: fork.fork,
+            isOwnedByUser: isOwned
+          };
+        });
+        
+        const forksWithOwnership = await Promise.all(forksWithOwnershipPromises);
+        
         return res.status(200).json({
-          forks: strippedForks,
+          forks: forksWithOwnership,
           hasNextPage,
           currentPage: page
         });
