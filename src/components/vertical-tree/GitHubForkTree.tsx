@@ -9,7 +9,6 @@ import ReactFlow, {
   useEdgesState,
   Handle,
   Position,
-  BackgroundVariant
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -33,6 +32,9 @@ interface NodeData {
   count?: number;
   isRoot?: boolean;
   isCurrentRepo?: boolean;
+  readmeContent?: string; // Added to store README content
+  owner?: string; // Added to help with README fetching
+  repo?: string; // Added to help with README fetching
 }
 
 interface GitHubForkTreeProps {
@@ -109,6 +111,57 @@ const ChildlessForkGroup = ({ data }: { data: NodeData }) => {
 
 // Also create a custom node for the default nodes to ensure consistent handle positioning
 const DefaultNode = ({ data }: { data: NodeData }) => {
+  const [showReadme, setShowReadme] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [readmeContent, setReadmeContent] = useState<string | null>(null);
+
+  // Function to fetch README content
+  const fetchReadme = async () => {
+    if (readmeContent !== null) {
+      setShowReadme(!showReadme);
+      return;
+    }
+
+    if (!data.owner || !data.repo) {
+      const parts = data.label.split('/');
+      if (parts.length !== 2) return;
+    }
+
+    setLoading(true);
+    try {
+      const owner = data.owner || data.label.split('/')[0];
+      const repo = data.repo || data.label.split('/')[1];
+      
+      // Try different README filenames
+      const fileNames = ['README.md', 'README', 'Readme.md', 'readme.md'];
+      let content = null;
+      
+      for (const fileName of fileNames) {
+        try {
+          const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${fileName}`);
+          if (response.ok) {
+            const data = await response.json();
+            // GitHub API returns content as base64 encoded
+            content = atob(data.content);
+            break;
+          }
+        } catch (err) {
+          // Continue trying other README formats
+          console.error(`Error fetching ${fileName}:`, err);
+        }
+      }
+      
+      setReadmeContent(content || "No README found");
+      setShowReadme(true);
+    } catch (error) {
+      console.error("Error fetching README:", error);
+      setReadmeContent("Failed to load README");
+      setShowReadme(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{ 
       background: data.isCurrentRepo ? '#F59E0B' : // Current repo color (amber)
@@ -128,9 +181,56 @@ const DefaultNode = ({ data }: { data: NodeData }) => {
         id="top"
         style={{ background: '#fff', width: '8px', height: '8px' }}
       />
-      <div onClick={() => data.url && window.open(data.url, '_blank')} style={{ cursor: 'pointer' }}>
-        {data.label}
+      <div 
+        onClick={fetchReadme} 
+        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
+        <span>{data.label}</span>
+        {loading ? <span>...</span> : (showReadme ? <span>▲</span> : <span>▼</span>)}
       </div>
+      
+      {showReadme && readmeContent && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          zIndex: 1000,
+          width: '400px',
+          maxHeight: '400px',
+          overflowY: 'auto',
+          background: 'white',
+          color: 'black',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          padding: '12px',
+          boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+          marginTop: '8px',
+          fontSize: '14px',
+          lineHeight: '1.5'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <h3 style={{ margin: 0 }}>README</h3>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReadme(false);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <div style={{ whiteSpace: 'pre-wrap' }}>
+            {readmeContent}
+          </div>
+        </div>
+      )}
+      
       <Handle
         type="source"
         position={Position.Bottom}
@@ -169,6 +269,9 @@ const GitHubForkTree: React.FC<GitHubForkTreeProps> = ({ treeData, currentRepo }
       isRoot: boolean = parentId === null // Root node if no parent ID
     ) => {
       const id = `node-${nodeId++}`;
+      const parts = node.fullName.split('/');
+      const owner = parts[0];
+      const repo = parts[1];
       
       flowNodes.push({
         id,
@@ -178,7 +281,9 @@ const GitHubForkTree: React.FC<GitHubForkTreeProps> = ({ treeData, currentRepo }
           isFork: node.isFork,
           isAncestor: node.isAncestor,
           isRoot: isRoot, // Set root flag
-          isCurrentRepo: currentRepo ? node.fullName === currentRepo : undefined // Use ternary to ensure boolean | undefined
+          isCurrentRepo: currentRepo ? node.fullName === currentRepo : undefined, // Use ternary to ensure boolean | undefined
+          owner: owner,
+          repo: repo
         },
         position: { x: xPos, y: level * ySpacing },
         type: 'defaultNode', // Use our custom default node
@@ -270,26 +375,19 @@ const GitHubForkTree: React.FC<GitHubForkTreeProps> = ({ treeData, currentRepo }
     setEdges(flowEdges);
   }, [treeData, processTreeData, setNodes, setEdges]);
 
-  const onNodeClick = useCallback((event: React.MouseEvent, node: Node<NodeData>) => {
-    if (node.data.url && node.type !== 'childlessForks') {
-      window.open(node.data.url, '_blank');
-    }
-  }, []);
-
   return (
-    <div style={{ width: '100%', height: '800px', paddingLeft: '25px', paddingRight: '25px' }}>
+    <div style={{ width: '100%', height: '800px', paddingLeft: '25px', paddingRight: '25px', position: 'relative' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}
       >
         <Controls />
-        <Background color="#f8f8f8" variant={BackgroundVariant.Dots} gap={32} />
+        <Background gap={8} />
       </ReactFlow>
     </div>
   );

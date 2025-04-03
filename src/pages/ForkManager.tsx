@@ -15,6 +15,35 @@ interface RepoSearchResult {
   name: string;
 }
 
+// Function to parse GitHub URLs
+function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+  try {
+    const urlObj = new URL(url);
+    
+    // Check if it's a GitHub URL
+    if (!urlObj.hostname.includes('github.com')) {
+      return null;
+    }
+    
+    // Parse the pathname to extract owner and repo
+    const pathParts = urlObj.pathname.split('/').filter(part => part.length > 0);
+    
+    // GitHub repository URLs are in the format: github.com/:owner/:repo
+    if (pathParts.length >= 2) {
+      return {
+        owner: pathParts[0],
+        repo: pathParts[1]
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    // If URL parsing fails, it's not a valid URL
+    console.error("Invalid URL:", error); 
+    return null;
+  }
+}
+
 export default function ForkManager() {
   const [owner, setOwner] = useState("");
   const [repo, setRepo] = useState("");
@@ -45,6 +74,11 @@ export default function ForkManager() {
 
   // Effect for searching repositories when debounced query changes
   useEffect(() => {
+    // Skip search if the query appears to be a GitHub URL
+    if (debouncedSearchQuery.startsWith('http') && parseGitHubUrl(debouncedSearchQuery)) {
+      return;
+    }
+    
     if (debouncedSearchQuery.length >= 3) {
       searchRepositories(debouncedSearchQuery);
     } else {
@@ -97,7 +131,16 @@ export default function ForkManager() {
   }
 
   function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setSearchQuery(e.target.value);
+    const input = e.target.value;
+    setSearchQuery(input);
+    
+    // Check if the input is a GitHub URL
+    const githubData = parseGitHubUrl(input);
+    if (githubData) {
+      setOwner(githubData.owner);
+      setRepo(githubData.repo);
+      setShowDropdown(false); // Hide dropdown when URL is detected
+    }
   }
 
   function handleRepoSelect(repo: RepoSearchResult) {
