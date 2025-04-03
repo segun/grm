@@ -5,7 +5,7 @@ import { Octokit } from "@octokit/rest";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-  const { action, owner, repo } = req.body;
+  const { action, owner, repo, query } = req.body;
 
   // Helper function to recursively get all ancestors
   async function getAncestry(o: string, r: string): Promise<any[]> {
@@ -157,6 +157,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     switch (action) {
+      case "searchRepositories":
+        console.log(`Processing searchRepositories request for query: ${query}`);
+        const searchResult = await octokit.search.repos({
+          q: query,
+          per_page: 10
+        });
+        return res.status(200).json({ 
+          items: searchResult.data.items.map((item: any) => ({
+            id: item.id,
+            full_name: item.full_name,
+            owner: {
+              login: item.owner.login
+            },
+            name: item.name
+          }))
+        });
+
       case "listForks":
         console.log(`Processing listForks request for ${owner}/${repo}`);
         const forks = await getAllForks(octokit, owner, repo);
