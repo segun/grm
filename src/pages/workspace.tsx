@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect } from 'react';
+import RandomNameGenerator from '../components/RandomNameGenerator';
+import { generateRandomAppName } from '../utils/nameGenerator';
 
 interface Organization {
   id: string;
@@ -71,6 +73,11 @@ export default function WorkspacePage() {
     return () => clearTimeout(timer);
   }, [applicationName]);
 
+  // Generate a random application name on page load
+  useEffect(() => {
+    setApplicationName(generateRandomAppName());
+  }, []);
+
   const handleCreateWorkspace = async () => {
     // Validate fields are filled and application does not already exist
     if (!workspaceName.trim() || !applicationName.trim() || !organizationId || appExists) return;
@@ -127,12 +134,15 @@ export default function WorkspacePage() {
         />
         
         <label className="block mb-1">Application Name</label>
-        <input
-          type="text"
-          value={applicationName}
-          onChange={(e) => setApplicationName(e.target.value)}
-          className="border p-2 mb-2 w-full"
-        />
+        <div className="flex items-center mb-2">
+          <input
+            type="text"
+            value={applicationName}
+            onChange={(e) => setApplicationName(e.target.value)}
+            className="border p-2 flex-grow h-10"
+          />
+          <RandomNameGenerator onGenerate={(name) => setApplicationName(name)} />
+        </div>
         {appExists && (
           <p className="mt-1 text-red-600 text-sm">
             Application already exists.
