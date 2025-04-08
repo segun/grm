@@ -39,6 +39,15 @@ export default async function handler(
     (req.query.action as string) ||
     (req.method === "DELETE" ? "delete" : "list");
   const machineId = req.query.id as string;
+  const appName = req.query.app as string;
+  
+  // Check if app name is provided
+  if (!appName) {
+    return res.status(400).json({
+      success: false,
+      error: "Application name is required",
+    });
+  }
 
   try {
     // Define common headers for all requests
@@ -49,10 +58,10 @@ export default async function handler(
 
     // List machines
     if (action === "list") {
-      console.log("Listing machines...");
+      console.log(`Listing machines for app: ${appName}...`);
 
       const listResponse = await fetch(
-        "https://api.machines.dev/v1/apps/vibecoder/machines",
+        `https://api.machines.dev/v1/apps/${appName}/machines`,
         { headers }
       );
 
@@ -68,7 +77,7 @@ export default async function handler(
       // For each machine, fetch its IPs
       for (const machine of machines) {
         const ipsResponse = await fetch(
-          `https://api.machines.dev/v1/apps/vibecoder/machines/${machine.id}/ips`,
+          `https://api.machines.dev/v1/apps/${appName}/machines/${machine.id}/ips`,
           { headers }
         );
 
@@ -88,10 +97,10 @@ export default async function handler(
 
     // Stop a machine
     else if (action === "stop" && machineId) {
-      console.log(`Stopping machine ${machineId}...`);
+      console.log(`Stopping machine ${machineId} in app ${appName}...`);
 
       const stopResponse = await fetch(
-        `https://api.machines.dev/v1/apps/vibecoder/machines/${machineId}/stop`,
+        `https://api.machines.dev/v1/apps/${appName}/machines/${machineId}/stop`,
         {
           method: "POST",
           headers,
@@ -113,10 +122,10 @@ export default async function handler(
 
     // Start a machine
     else if (action === "start" && machineId) {
-      console.log(`Starting machine ${machineId}...`);
+      console.log(`Starting machine ${machineId} in app ${appName}...`);
 
       const startResponse = await fetch(
-        `https://api.machines.dev/v1/apps/vibecoder/machines/${machineId}/start`,
+        `https://api.machines.dev/v1/apps/${appName}/machines/${machineId}/start`,
         {
           method: "POST",
           headers,
@@ -138,9 +147,9 @@ export default async function handler(
 
     // Delete a machine (first stop then delete)
     else if ((action === "delete" || req.method === "DELETE") && machineId) {
-      console.log(`Stopping machine ${machineId} before deletion...`);
+      console.log(`Stopping machine ${machineId} in app ${appName} before deletion...`);
       const stopResponse = await fetch(
-        `https://api.machines.dev/v1/apps/vibecoder/machines/${machineId}/stop`,
+        `https://api.machines.dev/v1/apps/${appName}/machines/${machineId}/stop`,
         { method: "POST", headers }
       );
 
@@ -155,9 +164,9 @@ export default async function handler(
         stopResponse: await stopResponse.json(),
       });
 
-      console.log(`Deleting machine ${machineId}...`);
+      console.log(`Deleting machine ${machineId} in app ${appName}...`);
       const deleteResponse = await fetch(
-        `https://api.machines.dev/v1/apps/vibecoder/machines/${machineId}`,
+        `https://api.machines.dev/v1/apps/${appName}/machines/${machineId}`,
         {
           method: "DELETE",
           headers,

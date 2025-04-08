@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { toast } from 'react-hot-toast';
@@ -18,13 +18,19 @@ interface Machine {
 
 export default function Workspaces() {
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [appName, setAppName] = useState('');
 
   const fetchMachines = async () => {
+    if (!appName.trim()) {
+      toast.error("Please enter an application name");
+      return;
+    }
+    
     setLoading(true);
     try {
-      const response = await fetch('/api/machines?action=list');
+      const response = await fetch(`/api/machines?action=list&app=${appName}`);
       const data = await response.json();
       
       if (data.success) {
@@ -39,18 +45,10 @@ export default function Workspaces() {
     }
   };
 
-  useEffect(() => {
-    fetchMachines();
-    
-    // Poll for updates every 15 seconds
-    const interval = setInterval(fetchMachines, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
   const handleMachineAction = async (action: string, machineId: string) => {
     setActionInProgress(machineId);
     try {
-      const response = await fetch(`/api/machines?action=${action}&id=${machineId}`, {
+      const response = await fetch(`/api/machines?action=${action}&id=${machineId}&app=${appName}`, {
         method: action === 'delete' ? 'DELETE' : 'POST',
       });
       
@@ -119,26 +117,38 @@ export default function Workspaces() {
           </Link>
         </div>
         
+        <div className="mb-6 flex items-center">
+          <label htmlFor="appName" className="mr-2 text-gray-700 font-medium">Application Name:</label>
+          <input
+            id="appName"
+            type="text"
+            value={appName}
+            onChange={(e) => setAppName(e.target.value)}
+            className="px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Enter application name"
+          />
+          <button
+            onClick={fetchMachines}
+            disabled={loading}
+            className="ml-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            {loading ? 'Loading...' : 'Load Machines'}
+          </button>
+        </div>
+        
         <div className="bg-black shadow-md rounded-lg overflow-hidden">
-          <div className="p-4 border-b flex justify-between items-center">
+          <div className="p-4 border-b">
             <h2 className="text-xl font-semibold">Your Machines</h2>
-            <button
-              onClick={() => fetchMachines()}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              disabled={loading}
-            >
-              {loading ? 'Refreshing...' : 'Refresh List'}
-            </button>
           </div>
           
-          {loading && machines.length === 0 ? (
+          {loading ? (
             <div className="p-8 text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
               <p className="mt-4 text-gray-600">Loading machines...</p>
             </div>
           ) : machines.length === 0 ? (
             <div className="p-8 text-center">
-              <p className="text-gray-600">No machines found.</p>
+              <p className="text-gray-600">No machines found. {!appName.trim() && "Enter an application name and click 'Load Machines'."}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

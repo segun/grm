@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 interface WorkspaceResponse {
   success: boolean;
@@ -19,15 +25,63 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [applicationName, setApplicationName] = useState('');
+  const [appExists, setAppExists] = useState(false);
+  const [organizationId, setOrganizationId] = useState('');
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [loadingOrganizations, setLoadingOrganizations] = useState(false);
+
+  useEffect(() => {
+    // Fetch organizations when component mounts
+    const fetchOrganizations = async () => {
+      setLoadingOrganizations(true);
+      try {
+        const response = await fetch('/api/organizations');
+        const data = await response.json();
+        if (data.success && data.organizations) {
+          setOrganizations(data.organizations);
+          if (data.organizations.length > 0) {
+            setOrganizationId(data.organizations[0].id);
+          }
+        } else {
+          setError(data.error || 'Failed to load organizations');
+        }
+      } catch (err) {
+        console.error('Error fetching organizations:', err);
+        setError('Failed to load organizations. Please try again.');
+      } finally {
+        setLoadingOrganizations(false);
+      }
+    };
+
+    fetchOrganizations();
+  }, []);
+
+  useEffect(() => {
+    // Debounce: wait 500ms after applicationName changes
+    const timer = setTimeout(() => {
+      if (applicationName.trim() !== '') {
+        fetch(`/api/checkApplication?name=${encodeURIComponent(applicationName)}`)
+          .then((res) => res.json())
+          .then((data) => setAppExists(data.exists))
+          .catch(() => setAppExists(false));
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [applicationName]);
 
   const handleCreateWorkspace = async () => {
+    // Validate fields are filled and application does not already exist
+    if (!workspaceName.trim() || !applicationName.trim() || !organizationId || appExists) return;
     setIsLoading(true);
     setError(null);
     
     try {
       const response = await fetch('/api/workspace', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceName, applicationName, organizationId }),
       });
       const data = await response.json();
       setWorkspace(data);
@@ -62,6 +116,52 @@ export default function WorkspacePage() {
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Workspace Creator</h1>
       
+      {/* Input fields for workspace name, application name, and organization */}
+      <div className="mb-4">
+        <label className="block mb-1">Workspace Name</label>
+        <input
+          type="text"
+          value={workspaceName}
+          onChange={(e) => setWorkspaceName(e.target.value)}
+          className="border p-2 mb-2 w-full"
+        />
+        
+        <label className="block mb-1">Application Name</label>
+        <input
+          type="text"
+          value={applicationName}
+          onChange={(e) => setApplicationName(e.target.value)}
+          className="border p-2 mb-2 w-full"
+        />
+        {appExists && (
+          <p className="mt-1 text-red-600 text-sm">
+            Application already exists.
+          </p>
+        )}
+        
+        <label className="block mb-1">Organization</label>
+        {loadingOrganizations ? (
+          <div className="text-gray-500">Loading organizations...</div>
+        ) : (
+          <select
+            value={organizationId}
+            onChange={(e) => setOrganizationId(e.target.value)}
+            className="border p-2 w-full"
+            disabled={organizations.length === 0}
+          >
+            {organizations.length === 0 ? (
+              <option value="">No organizations available</option>
+            ) : (
+              organizations.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))
+            )}
+          </select>
+        )}
+      </div>
+
       <div className="mb-4">
         <p className="mb-4">
           Create a new remote development workspace with SSH access.
@@ -69,7 +169,7 @@ export default function WorkspacePage() {
         
         <button 
           onClick={handleCreateWorkspace}
-          disabled={isLoading}
+          disabled={isLoading || !workspaceName.trim() || !applicationName.trim() || !organizationId || appExists}
           className="bg-blue-600 text-white px-4 py-2 rounded flex items-center"
         >
           {isLoading ? (
