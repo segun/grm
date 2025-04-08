@@ -1,0 +1,6 @@
+version: '3'
+services:
+  ubuntu-ssh-nodejs:
+    build:
+      context: .
+    image: aardvocate/ubuntu-ssh-nodejs:latest

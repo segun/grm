@@ -1,50 +1,42 @@
-# syntax = docker/dockerfile:1
+FROM ubuntu:latest
 
-# Adjust NODE_VERSION as desired
-ARG NODE_VERSION=20.12.2
-FROM node:${NODE_VERSION}-slim AS base
+# Update and install SSH server and other dependencies
+RUN apt-get update && \
+    apt-get install -y openssh-server curl sudo && \
+    mkdir -p /var/run/sshd
 
-LABEL fly_launch_runtime="Next.js"
+# Create vibecoder user with sudo privileges
+RUN useradd -m vibecoder && \
+    echo "vibecoder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/vibecoder && \
+    chmod 0440 /etc/sudoers.d/vibecoder
 
-# Next.js app lives here
-WORKDIR /app
+# Configure SSH
+RUN mkdir -p /home/vibecoder/.ssh && \
+    chmod 700 /home/vibecoder/.ssh && \
+    chown vibecoder:vibecoder /home/vibecoder/.ssh && \
+    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
-# Set production environment
-ENV NODE_ENV="production"
-ARG YARN_VERSION=1.22.22
-RUN npm install -g yarn@$YARN_VERSION --force
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
 
+# Install anon-kode package
+RUN npm install -g anon-kode
 
-# Throw-away build stage to reduce size of final image
-FROM base AS build
+# Set user password (temporary for initial access)
+RUN echo 'vibecoder:changeme' | chpasswd
 
-# Install packages needed to build node modules
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential node-gyp pkg-config python-is-python3
+# Add SSH config: set port to 2222
+RUN echo "Port 2222" >> /etc/ssh/sshd_config
 
-# Install node modules
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production=false
+# Expose SSH port
+EXPOSE 2222
 
-# Copy application code
-COPY . .
+# Set working directory to vibecoder's home directory
+WORKDIR /home/vibecoder
 
-# Build application
-RUN npx next build --experimental-build-mode compile
-
-# Remove development dependencies
-RUN yarn install --production=true
-
-
-# Final stage for app image
-FROM base
-
-# Copy built application
-COPY --from=build /app /app
-
-# Entrypoint sets up the container.
-ENTRYPOINT [ "/app/docker-entrypoint.js" ]
-
-# Start the server by default, this can be overwritten at runtime
-EXPOSE 3000
-CMD [ "yarn", "run", "start" ]
+# Remove previous CMD and add entrypoint to start sshd then login as vibecoder
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
